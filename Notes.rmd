@@ -1,0 +1,69 @@
+---
+title: "Notes"
+output: html_document
+---
+
+## Create example scans
+
+"scan": a time series data vector
+"TR": inverse of frequency (Hz); the time between each sample in a scan
+
+```{r}
+nT <- 1200 # number of samples: use HCP rs-fMRI length
+TR <- .72 # inverse sampling frequency (1/Hz): use HCP fMRI TR
+fs_0 <- 1/TR # sampling frequency (Hz): use HCP fMRI TR
+lenT_0 <- nT/fs_0 # length of scan (seconds)
+
+# But, unless you use `"time-series"` objects, `fs` is treated as 1 Hz.
+# We will use Hz* to denote frequencies relative to `fs==1`.
+# Hz will denote frequencies relative to the true `fs_0`.
+fs <- 1; lenT <- nT
+
+x <- sin(2*pi*seq(0, nT-1)/nT) # (1/lenT) Hz* == (1/lenT_0) Hz
+y <- sin(2*pi*17*seq(0, nT-1)/nT) # (17/lenT) Hz* == (17/lenT_0) Hz
+yspec <- spec.pgram(y, plot=FALSE)
+yspecMax_idx <- which.max(yspec$spec) # 17
+yspecMax_freq <- yspec$freq[yspecMax_idx] # (17/lenT) Hz*
+z <- sin(2*pi*0.004*seq(0, nT-1)) # 0.004 Hz* == (0.004*nT/lenT_0) Hz
+scans <- cbind(x,y,z)
+scans_n <- scans + rnorm(nT*3, sd=.05)
+matplot(scans_n, type="l", col=c("blue", "darkgreen", "black"), lty=1, main="Scans")
+```
+
+## Filter 
+
+```{r}
+# library(signal)
+library(gsignal)
+
+par(mfrow=c(2,2))
+
+# Let's try to filter out the black 0.004 Hz* signal.
+ffreq <- c(.003, .005)
+# "For digital filters, W must be between 0 and 1 where 1 is the Nyquist frequency."
+nq <- 2*fs
+myfilt1 <- gsignal::butter(n=10, w=ffreq*nq, type="stop")
+# gsignal::freqz(filt=myfilt1)
+# gsignal::filtfilt(myfilt1, scans_n) # breaks
+myfilt2 <- gsignal::cheby2(2, Rs=20, w=ffreq*nq, type="stop")
+# gsignal::freqz(filt=myfilt1)
+scans_n_dtb <- gsignal::filtfilt(myfilt2, scans_n)
+matplot(scans_n_dtb, type="l", col=c("blue", "darkgreen", "black"), lty=1, main="Stopband: black")
+
+# Now let's go for the green signal.
+ffreq <- 17/lenT + c(-.001, .001)
+myfilt2 <- gsignal::cheby2(2, Rs=50, w=ffreq*nq, type="stop")
+scans_n_dtg <- gsignal::filtfilt(myfilt2, scans_n)
+matplot(scans_n_dtg, type="l", col=c("blue", "darkgreen", "black"), lty=1, main="Stopband: green")
+spec.pgram(scans, col=c("blue", "darkgreen", "black"), lty=1, xlim=c(0, .2), main="Scans: pre green stopband")
+spec.pgram(scans_n_dtg, col=c("blue", "darkgreen", "black"), lty=1, xlim=c(0, .2), main="Scans: post green stopband")
+```
+
+So if we wanted to apply a stop-band filter of [0.2 Hz, 0.5 Hz], then `w` should be:
+
+```{r}
+ffreq_0 <- c(.2, .5)
+ffreq <- ffreq_0 *TR
+w <- ffreq*nq
+w
+```
